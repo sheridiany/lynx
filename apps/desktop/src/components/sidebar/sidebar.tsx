@@ -1,12 +1,13 @@
-import { Plus, MessageSquare, Settings, Wrench } from 'lucide-react'
+import { Plus, MessageSquare, Settings, Wrench, Trash2 } from 'lucide-react'
 import { useChatStore } from '@/stores/chat-store'
 
 interface SidebarProps {
   collapsed: boolean
+  onOpenSettings: () => void
 }
 
-export function Sidebar({ collapsed }: SidebarProps) {
-  const { conversations, activeConversationId, createConversation, setActiveConversation } = useChatStore()
+export function Sidebar({ collapsed, onOpenSettings }: SidebarProps) {
+  const { conversations, activeConversationId, createConversation, setActiveConversation, deleteConversation } = useChatStore()
 
   if (collapsed) {
     return (
@@ -22,7 +23,11 @@ export function Sidebar({ collapsed }: SidebarProps) {
         <button className="p-2 rounded-lg hover:bg-bg-tertiary text-text-secondary hover:text-text-primary transition-colors" title="Tools">
           <Wrench size={18} />
         </button>
-        <button className="p-2 rounded-lg hover:bg-bg-tertiary text-text-secondary hover:text-text-primary transition-colors" title="Settings">
+        <button
+          onClick={onOpenSettings}
+          className="p-2 rounded-lg hover:bg-bg-tertiary text-text-secondary hover:text-text-primary transition-colors"
+          title="Settings"
+        >
           <Settings size={18} />
         </button>
       </aside>
@@ -54,17 +59,30 @@ export function Sidebar({ collapsed }: SidebarProps) {
           </div>
         ) : (
           conversations.map((conv) => (
-            <button
+            <div
               key={conv.id}
-              onClick={() => setActiveConversation(conv.id)}
-              className={`w-full text-left px-3 py-2 rounded-lg text-sm truncate transition-colors mb-0.5 ${
+              className={`group flex items-center rounded-lg mb-0.5 transition-colors ${
                 conv.id === activeConversationId
-                  ? 'bg-accent/10 text-accent border border-accent/20'
-                  : 'text-text-secondary hover:bg-bg-tertiary hover:text-text-primary border border-transparent'
+                  ? 'bg-accent/10 border border-accent/20'
+                  : 'hover:bg-bg-tertiary border border-transparent'
               }`}
             >
-              {conv.title || 'New conversation'}
-            </button>
+              <button
+                onClick={() => setActiveConversation(conv.id)}
+                className={`flex-1 text-left px-3 py-2 text-sm truncate ${
+                  conv.id === activeConversationId ? 'text-accent' : 'text-text-secondary hover:text-text-primary'
+                }`}
+              >
+                {conv.title || 'New conversation'}
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); deleteConversation(conv.id) }}
+                className="hidden group-hover:flex items-center justify-center w-7 h-7 mr-1 rounded text-text-tertiary hover:text-error hover:bg-error/10 transition-colors"
+                title="Delete conversation"
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
           ))
         )}
       </div>
@@ -75,7 +93,10 @@ export function Sidebar({ collapsed }: SidebarProps) {
           <Wrench size={16} />
           Tools
         </button>
-        <button className="flex-1 flex items-center gap-2 px-3 py-2 rounded-lg text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors text-sm">
+        <button
+          onClick={onOpenSettings}
+          className="flex-1 flex items-center gap-2 px-3 py-2 rounded-lg text-text-secondary hover:bg-bg-tertiary hover:text-text-primary transition-colors text-sm"
+        >
           <Settings size={16} />
           Settings
         </button>

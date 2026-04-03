@@ -3,6 +3,8 @@ import type { ClientMessage, ServerEvent } from '@lynx/shared'
 import { nanoid } from 'nanoid'
 import consola from 'consola'
 import { handleChat } from './llm/adapter.js'
+import { listConversations, deleteConversation, updateConversationTitle } from './db/conversations.js'
+import { getMessages } from './db/messages.js'
 
 const logger = consola.withTag('WS')
 
@@ -69,6 +71,9 @@ export function handleConnection(ws: WebSocket) {
                   messageId,
                   payload: meta
                 })
+              },
+              onConversationId: (_conversationId) => {
+                // Could be used to send conversation ID back to client if needed
               }
             })
           } catch (err: unknown) {
@@ -101,6 +106,72 @@ export function handleConnection(ws: WebSocket) {
             activeAbortController = null
             logger.info('Generation cancelled by user')
           }
+          break
+        }
+
+        case 'list-conversations': {
+          const conversations = listConversations()
+          send({
+            type: 'conversations-list',
+            messageId: message.id,
+            payload: {
+              conversations: conversations.map((c) => ({
+                id: c.id,
+                title: c.title,
+                createdAt: c.createdAt,
+                updatedAt: c.updatedAt,
+              }))
+            }
+          })
+          break
+        }
+
+        case 'load-conversation': {
+          const messages = getMessages(message.payload.conversationId)
+          send({
+            type: 'conversation-messages',
+            messageId: message.id,
+            payload: {
+              conversationId: message.payload.conversationId,
+              messages: messages.map((m) => ({
+                id: m.id,
+                role: m.role,
+                content: m.content,
+                createdAt: m.createdAt,
+              }))
+            }
+          })
+          break
+        }
+
+        case 'delete-conversation': {
+          deleteConversation(message.payload.conversationId)
+          send({
+            type: 'conversation-deleted',
+            messageId: message.id,
+            payload: { conversationId: message.payload.conversationId }
+          })
+          logger.info(`Deleted conversation: ${message.payload.conversationId}`)
+          break
+        }
+
+        case 'rename-conversation': {
+          updateConversationTitle(message.payload.conversationId, message.payload.title)
+          // Send updated list back so client stays in sync
+          const updatedConversations = listConversations()
+          send({
+            type: 'conversations-list',
+            messageId: message.id,
+            payload: {
+              conversations: updatedConversations.map((c) => ({
+                id: c.id,
+                title: c.title,
+                createdAt: c.createdAt,
+                updatedAt: c.updatedAt,
+              }))
+            }
+          })
+          logger.info(`Renamed conversation: ${message.payload.conversationId}`)
           break
         }
 

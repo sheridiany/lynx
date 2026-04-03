@@ -23,6 +23,9 @@ interface ChatState {
   isStreaming: boolean
   streamingMessageId: string | null
 
+  // Model selection
+  selectedModel: string
+
   // Actions
   connect: () => void
   disconnect: () => void
@@ -30,6 +33,11 @@ interface ChatState {
   cancelGeneration: () => void
   createConversation: () => void
   setActiveConversation: (id: string) => void
+  setSelectedModel: (modelId: string) => void
+  regenerateLastMessage: () => void
+  requestConversationList: () => void
+  deleteConversation: (id: string) => void
+  renameConversation: (id: string, title: string) => void
 }
 
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
@@ -42,6 +50,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   isStreaming: false,
   streamingMessageId: null,
+  selectedModel: 'claude-sonnet-4-6',
 
   connect: () => {
     const ws = new WebSocket(`ws://localhost:${WS_PORT}/ws`)
@@ -52,6 +61,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         clearTimeout(reconnectTimer)
         reconnectTimer = null
       }
+      // Load conversations from server on connect
+      ws.send(JSON.stringify({ type: 'list-conversations', id: crypto.randomUUID() }))
     }
 
     ws.onmessage = (event) => {
@@ -82,6 +93,43 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
         case 'message-done': {
           set({ isStreaming: false, streamingMessageId: null })
+          // Refresh conversation list to pick up new titles
+          ws.send(JSON.stringify({ type: 'list-conversations', id: crypto.randomUUID() }))
+          break
+        }
+
+        case 'conversations-list': {
+          const serverConvs = data.payload.conversations.map((c) => ({
+            id: c.id,
+            title: c.title,
+            createdAt: c.createdAt,
+            updatedAt: c.updatedAt,
+            archived: false,
+          }))
+          set({ conversations: serverConvs })
+          break
+        }
+
+        case 'conversation-messages': {
+          const loadedMessages: ChatMessage[] = data.payload.messages.map((m) => ({
+            id: m.id,
+            role: m.role as MessageRole,
+            content: m.content,
+            createdAt: m.createdAt,
+          }))
+          set({ messages: loadedMessages, activeConversationId: data.payload.conversationId })
+          break
+        }
+
+        case 'conversation-deleted': {
+          set((state) => {
+            const filtered = state.conversations.filter((c) => c.id !== data.payload.conversationId)
+            const needsClear = state.activeConversationId === data.payload.conversationId
+            return {
+              conversations: filtered,
+              ...(needsClear ? { activeConversationId: null, messages: [] } : {}),
+            }
+          })
           break
         }
 
@@ -137,7 +185,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   sendMessage: (text) => {
-    const { ws, connected, activeConversationId } = get()
+    const { ws, connected, activeConversationId, selectedModel } = get()
     if (!ws || !connected) return
 
     const messageId = crypto.randomUUID()
@@ -161,7 +209,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       id: messageId,
       payload: {
         text,
-        conversationId: activeConversationId
+        conversationId: activeConversationId,
+        modelId: selectedModel
       }
     }))
   },
@@ -192,7 +241,89 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   setActiveConversation: (id) => {
+    const { ws, connected } = get()
     set({ activeConversationId: id, messages: [] })
-    // TODO: load messages from database
+    // Load messages from server
+    if (ws && connected) {
+      ws.send(JSON.stringify({
+        type: 'load-conversation',
+        id: crypto.randomUUID(),
+        payload: { conversationId: id }
+      }))
+    }
+  },
+
+  setSelectedModel: (modelId) => {
+    set({ selectedModel: modelId })
+  },
+
+  requestConversationList: () => {
+    const { ws, connected } = get()
+    if (ws && connected) {
+      ws.send(JSON.stringify({ type: 'list-conversations', id: crypto.randomUUID() }))
+    }
+  },
+
+  deleteConversation: (id) => {
+    const { ws, connected } = get()
+    if (ws && connected) {
+      ws.send(JSON.stringify({
+        type: 'delete-conversation',
+        id: crypto.randomUUID(),
+        payload: { conversationId: id }
+      }))
+    }
+  },
+
+  renameConversation: (id, title) => {
+    const { ws, connected } = get()
+    if (ws && connected) {
+      ws.send(JSON.stringify({
+        type: 'rename-conversation',
+        id: crypto.randomUUID(),
+        payload: { conversationId: id, title }
+      }))
+    }
+  },
+
+  regenerateLastMessage: () => {
+    const { messages, ws, connected, activeConversationId, selectedModel, isStreaming } = get()
+    if (!ws || !connected || isStreaming) return
+
+    // Find the last assistant message and the last user message before it
+    let lastAssistantIdx = -1
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'assistant') {
+        lastAssistantIdx = i
+        break
+      }
+    }
+    if (lastAssistantIdx === -1) return
+
+    // Find the last user message before (or at) lastAssistantIdx
+    let lastUserMsg: ChatMessage | null = null
+    for (let i = lastAssistantIdx - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') {
+        lastUserMsg = messages[i]
+        break
+      }
+    }
+    if (!lastUserMsg) return
+
+    // Remove the last assistant message
+    const newMessages = messages.filter((_, idx) => idx !== lastAssistantIdx)
+    set({ messages: newMessages })
+
+    // Re-send the user message
+    const messageId = crypto.randomUUID()
+    ws.send(JSON.stringify({
+      type: 'chat',
+      id: messageId,
+      payload: {
+        text: lastUserMsg.content,
+        conversationId: activeConversationId,
+        modelId: selectedModel
+      }
+    }))
   }
 }))

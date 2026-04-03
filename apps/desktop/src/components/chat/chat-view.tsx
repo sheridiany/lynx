@@ -5,7 +5,7 @@ import { ChatInput } from './chat-input'
 import { EmptyState } from './empty-state'
 
 export function ChatView() {
-  const { messages, isStreaming } = useChatStore()
+  const { messages, isStreaming, regenerateLastMessage } = useChatStore()
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // Auto-scroll to bottom on new messages
@@ -23,9 +23,21 @@ export function ChatView() {
           <EmptyState />
         ) : (
           <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
-            {messages.map((msg) => (
-              <ChatMessage key={msg.id} message={msg} />
-            ))}
+            {messages.map((msg, idx) => {
+              // Determine if this is the last assistant message
+              let isLastAssistant = false
+              if (msg.role === 'assistant') {
+                isLastAssistant = !messages.slice(idx + 1).some((m) => m.role === 'assistant')
+              }
+              return (
+                <ChatMessage
+                  key={msg.id}
+                  message={msg}
+                  isLastAssistant={isLastAssistant}
+                  onRegenerate={regenerateLastMessage}
+                />
+              )
+            })}
             {isStreaming && (
               <div className="flex items-center gap-2 text-text-secondary text-sm">
                 <div className="flex gap-1">

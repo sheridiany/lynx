@@ -1,12 +1,14 @@
 import { streamText } from 'ai'
 import consola from 'consola'
+import { nanoid } from 'nanoid'
 import { getProvider } from './providers.js'
+import { createConversation, getConversation, touchConversation, updateConversationTitle } from '../db/conversations.js'
+import { saveMessage, getMessages } from '../db/messages.js'
 
 const logger = consola.withTag('LLM')
 
-// Simple in-memory conversation history for now
-// Will be replaced with SQLite in Phase 0-W3
-const conversationHistory = new Map<string, Array<{ role: 'user' | 'assistant'; content: string }>>()
+// Small in-memory cache for the active conversation to avoid DB reads on every token
+const activeConversationCache = new Map<string, Array<{ role: 'user' | 'assistant'; content: string }>>()
 
 interface ChatOptions {
   userMessage: string
@@ -17,6 +19,7 @@ interface ChatOptions {
   onToolStart: (toolCallId: string, toolName: string, input: Record<string, unknown>) => void
   onToolResult: (toolCallId: string, toolName: string, result: unknown, status: 'success' | 'error', durationMs: number) => void
   onDone: (meta: { totalTokens: { input: number; output: number }; durationMs: number; model: string; provider: string }) => void
+  onConversationId: (conversationId: string) => void
 }
 
 const SYSTEM_PROMPT = `You are Lynx, a helpful personal AI assistant running on the user's desktop.
@@ -25,16 +28,51 @@ Current time: ${new Date().toISOString()}
 Platform: ${process.platform}`
 
 export async function handleChat(options: ChatOptions): Promise<void> {
-  const { userMessage, conversationId, messageId, signal, onToken, onDone } = options
+  const { userMessage, conversationId, messageId, signal, onToken, onDone, onConversationId } = options
   const startTime = Date.now()
 
-  // Get or create conversation history
-  const convId = conversationId || messageId
-  if (!conversationHistory.has(convId)) {
-    conversationHistory.set(convId, [])
+  // Resolve or create conversation
+  let convId = conversationId || ''
+  let isNewConversation = false
+
+  if (!convId || !getConversation(convId)) {
+    convId = conversationId || nanoid()
+    const title = userMessage.slice(0, 50).trim() || 'New conversation'
+    createConversation(convId, title)
+    isNewConversation = true
+    logger.info(`Created new conversation: ${convId}`)
   }
-  const history = conversationHistory.get(convId)!
+
+  // Notify caller of the conversation ID (useful when auto-created)
+  onConversationId(convId)
+
+  // Load history from cache or DB
+  let history: Array<{ role: 'user' | 'assistant'; content: string }>
+  if (activeConversationCache.has(convId)) {
+    history = activeConversationCache.get(convId)!
+  } else {
+    const dbMessages = getMessages(convId, 40)
+    history = dbMessages
+      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }))
+    activeConversationCache.set(convId, history)
+  }
+
+  // Add user message to history and persist
   history.push({ role: 'user', content: userMessage })
+  const userMsgId = nanoid()
+  saveMessage({
+    id: userMsgId,
+    conversationId: convId,
+    role: 'user',
+    content: userMessage,
+  })
+
+  // Auto-title: update title from first user message if this is a new conversation
+  if (isNewConversation) {
+    const title = userMessage.slice(0, 50).trim() || 'New conversation'
+    updateConversationTitle(convId, title)
+  }
 
   const provider = getProvider()
   if (!provider) {
@@ -59,10 +97,19 @@ export async function handleChat(options: ChatOptions): Promise<void> {
     onToken(chunk)
   }
 
-  // Save assistant response to history
+  // Save assistant response to history and DB
   history.push({ role: 'assistant', content: fullText })
+  saveMessage({
+    id: messageId,
+    conversationId: convId,
+    role: 'assistant',
+    content: fullText,
+  })
 
-  // Keep history manageable (last 40 messages)
+  // Update conversation timestamp
+  touchConversation(convId)
+
+  // Keep in-memory cache manageable (last 40 messages)
   if (history.length > 40) {
     history.splice(0, history.length - 40)
   }

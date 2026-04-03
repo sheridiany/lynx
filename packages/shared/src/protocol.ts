@@ -30,7 +30,37 @@ export interface WidgetActionMessage {
   }
 }
 
-export type ClientMessage = ChatMessage | CancelMessage | WidgetActionMessage
+export interface ListConversationsMessage {
+  type: 'list-conversations'
+  id: string
+}
+
+export interface LoadConversationMessage {
+  type: 'load-conversation'
+  id: string
+  payload: { conversationId: string }
+}
+
+export interface DeleteConversationMessage {
+  type: 'delete-conversation'
+  id: string
+  payload: { conversationId: string }
+}
+
+export interface RenameConversationMessage {
+  type: 'rename-conversation'
+  id: string
+  payload: { conversationId: string; title: string }
+}
+
+export type ClientMessage =
+  | ChatMessage
+  | CancelMessage
+  | WidgetActionMessage
+  | ListConversationsMessage
+  | LoadConversationMessage
+  | DeleteConversationMessage
+  | RenameConversationMessage
 
 // ============ Server → Client Events ============
 
@@ -112,6 +142,29 @@ export interface StatusEvent {
   }
 }
 
+export interface ConversationsListEvent {
+  type: 'conversations-list'
+  messageId: string | null
+  payload: {
+    conversations: Array<{ id: string; title: string; createdAt: number; updatedAt: number }>
+  }
+}
+
+export interface ConversationMessagesEvent {
+  type: 'conversation-messages'
+  messageId: string | null
+  payload: {
+    conversationId: string
+    messages: Array<{ id: string; role: string; content: string; createdAt: number }>
+  }
+}
+
+export interface ConversationDeletedEvent {
+  type: 'conversation-deleted'
+  messageId: string | null
+  payload: { conversationId: string }
+}
+
 export type ServerEvent =
   | TokenEvent
   | ToolStartEvent
@@ -121,3 +174,6 @@ export type ServerEvent =
   | MessageDoneEvent
   | ErrorEvent
   | StatusEvent
+  | ConversationsListEvent
+  | ConversationMessagesEvent
+  | ConversationDeletedEvent

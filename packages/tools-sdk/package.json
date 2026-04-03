@@ -1,0 +1,11 @@
+{
+  "name": "@lynx/tools-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/define-tool.ts",
+  "types": "./src/define-tool.ts",
+  "exports": {
+    ".": "./src/define-tool.ts"
+  }
+}

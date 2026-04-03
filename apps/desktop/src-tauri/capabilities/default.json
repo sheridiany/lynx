@@ -1,0 +1,15 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicegoodkindguy/tauri/dev/crates/tauri-utils/schema.json",
+  "identifier": "default",
+  "description": "Default capability for the main window",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "shell:allow-open",
+    "notification:default",
+    "fs:default",
+    "dialog:default",
+    "os:default",
+    "process:default"
+  ]
+}
